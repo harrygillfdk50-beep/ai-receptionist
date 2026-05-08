@@ -92,3 +92,84 @@ def test_voice_incoming_initializes_conversation_history(tmp_path, monkeypatch):
     finally:
         api.dependency_overrides.clear()
         modal_app.CONVERSATIONS.clear()
+
+
+def test_voice_gather_processes_speech_and_returns_twiml(tmp_path, monkeypatch):
+    from execution.audio_storage import AudioStorage
+    storage = AudioStorage(base_dir=tmp_path)
+    api.dependency_overrides[get_storage] = lambda: storage
+
+    import modal_app
+    monkeypatch.setattr(modal_app, "synthesize_speech", lambda text: b"fake_audio")
+    monkeypatch.setattr(
+        modal_app, "generate_reply",
+        lambda system_prompt, history, new_message: "Sure, what day works?",
+    )
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://test.modal.run")
+    modal_app.CONVERSATIONS["CA999"] = [{"role": "assistant", "content": "Hi!"}]
+
+    try:
+        client = TestClient(api)
+        response = client.post(
+            "/voice/gather",
+            data={"CallSid": "CA999", "SpeechResult": "I want an appointment"},
+        )
+        assert response.status_code == 200
+        body = response.text
+        assert "<Play>" in body
+        assert "<Gather" in body
+        assert 'action="/voice/gather"' in body
+    finally:
+        api.dependency_overrides.clear()
+        modal_app.CONVERSATIONS.clear()
+
+
+def test_voice_gather_appends_user_and_assistant_to_history(tmp_path, monkeypatch):
+    from execution.audio_storage import AudioStorage
+    storage = AudioStorage(base_dir=tmp_path)
+    api.dependency_overrides[get_storage] = lambda: storage
+
+    import modal_app
+    monkeypatch.setattr(modal_app, "synthesize_speech", lambda text: b"x")
+    monkeypatch.setattr(
+        modal_app, "generate_reply",
+        lambda system_prompt, history, new_message: "Of course.",
+    )
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://test.modal.run")
+    modal_app.CONVERSATIONS["CA111"] = [{"role": "assistant", "content": "Hi!"}]
+
+    try:
+        client = TestClient(api)
+        client.post(
+            "/voice/gather",
+            data={"CallSid": "CA111", "SpeechResult": "Book me an appointment"},
+        )
+        history = modal_app.CONVERSATIONS["CA111"]
+        # Started with 1 message, added user + assistant = 3 total
+        assert len(history) == 3
+        assert history[1] == {"role": "user", "content": "Book me an appointment"}
+        assert history[2] == {"role": "assistant", "content": "Of course."}
+    finally:
+        api.dependency_overrides.clear()
+        modal_app.CONVERSATIONS.clear()
+
+
+def test_voice_gather_handles_missing_speech_result(tmp_path, monkeypatch):
+    from execution.audio_storage import AudioStorage
+    storage = AudioStorage(base_dir=tmp_path)
+    api.dependency_overrides[get_storage] = lambda: storage
+
+    import modal_app
+    monkeypatch.setattr(modal_app, "synthesize_speech", lambda text: b"x")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://test.modal.run")
+
+    try:
+        client = TestClient(api)
+        # No SpeechResult sent — Twilio sends empty when nothing captured
+        response = client.post("/voice/gather", data={"CallSid": "CA222", "SpeechResult": ""})
+        assert response.status_code == 200
+        # Should re-prompt (gather again), not crash
+        assert "<Gather" in response.text
+    finally:
+        api.dependency_overrides.clear()
+        modal_app.CONVERSATIONS.clear()

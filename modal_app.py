@@ -88,6 +88,58 @@ def voice_incoming(
     return _twiml(twiml_body)
 
 
+REPROMPT_TEXT = "I didn't catch that. Could you say it again?"
+
+
+@api.post("/voice/gather")
+def voice_gather(
+    CallSid: str = Form(...),
+    SpeechResult: str = Form(""),
+    storage: AudioStorage = Depends(get_storage),
+):
+    config = get_business_config()
+
+    # No speech captured: re-prompt and gather again.
+    if not SpeechResult.strip():
+        audio_id = storage.save(synthesize_speech(REPROMPT_TEXT))
+        audio_url = _public_audio_url(audio_id)
+        return _twiml(
+            f"<Play>{audio_url}</Play>"
+            f'<Gather input="speech" action="/voice/gather" method="POST" '
+            f'speechTimeout="auto" timeout="5"></Gather>'
+            f'<Redirect>/voice/incoming</Redirect>'
+        )
+
+    # Get prior history (or start fresh if Twilio retried after restart)
+    history = CONVERSATIONS.get(CallSid, [])
+    system_prompt = build_system_prompt(config)
+
+    # Generate reply
+    reply_text = generate_reply(
+        system_prompt=system_prompt,
+        history=history,
+        new_message=SpeechResult,
+    )
+
+    # Update history
+    CONVERSATIONS[CallSid] = history + [
+        {"role": "user", "content": SpeechResult},
+        {"role": "assistant", "content": reply_text},
+    ]
+
+    # TTS + return TwiML
+    audio_id = storage.save(synthesize_speech(reply_text))
+    audio_url = _public_audio_url(audio_id)
+    return _twiml(
+        f"<Play>{audio_url}</Play>"
+        f'<Gather input="speech" action="/voice/gather" method="POST" '
+        f'speechTimeout="auto" timeout="5"></Gather>'
+        # If caller goes silent, hang up gracefully
+        f'<Say>Thank you for calling. Goodbye.</Say>'
+        f'<Hangup/>'
+    )
+
+
 # ── Modal deployment hook ────────────────────────────────────────────────
 @app.function(
     image=image,

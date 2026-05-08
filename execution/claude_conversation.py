@@ -22,7 +22,7 @@ def generate_reply(
     Returns:
         The assistant's reply text.
     """
-    client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
     messages = list(history) + [{"role": "user", "content": new_message}]
 

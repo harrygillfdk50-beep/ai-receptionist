@@ -3,7 +3,8 @@ from execution.claude_conversation import generate_reply
 
 
 @patch("execution.claude_conversation.Anthropic")
-def test_generate_reply_returns_assistant_text(mock_anthropic_cls):
+def test_generate_reply_returns_assistant_text(mock_anthropic_cls, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     mock_client = MagicMock()
     mock_anthropic_cls.return_value = mock_client
     mock_client.messages.create.return_value = MagicMock(
@@ -20,7 +21,8 @@ def test_generate_reply_returns_assistant_text(mock_anthropic_cls):
 
 
 @patch("execution.claude_conversation.Anthropic")
-def test_generate_reply_passes_history_to_claude(mock_anthropic_cls):
+def test_generate_reply_passes_history_to_claude(mock_anthropic_cls, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     mock_client = MagicMock()
     mock_anthropic_cls.return_value = mock_client
     mock_client.messages.create.return_value = MagicMock(
@@ -47,7 +49,8 @@ def test_generate_reply_passes_history_to_claude(mock_anthropic_cls):
 
 
 @patch("execution.claude_conversation.Anthropic")
-def test_generate_reply_uses_sonnet_4_5_model(mock_anthropic_cls):
+def test_generate_reply_uses_sonnet_4_5_model(mock_anthropic_cls, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     mock_client = MagicMock()
     mock_anthropic_cls.return_value = mock_client
     mock_client.messages.create.return_value = MagicMock(

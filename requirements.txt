@@ -1,4 +1,5 @@
-modal==0.64.0
+modal==1.4.2
+protobuf>=6,<7
 fastapi==0.110.0
 anthropic==0.39.0
 elevenlabs==1.7.0

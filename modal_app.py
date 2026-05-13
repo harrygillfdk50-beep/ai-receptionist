@@ -1,6 +1,9 @@
 """FastAPI app deployed on Modal — Twilio voice webhooks + audio playback."""
 
 import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import modal
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.responses import PlainTextResponse
@@ -31,7 +34,28 @@ AUDIO_DIR = "/audio_volume"
 # Phase 5 replaces this with Supabase. Fine for single-process Phase 1 MVP.
 CONVERSATIONS: dict[str, list[dict]] = {}
 
-GREETING_TEMPLATE = "Thank you for calling {name}. How can I help you today?"
+
+def _time_of_day_greeting(timezone: str) -> str:
+    """Return 'Good morning', 'Good afternoon', 'Good evening', or 'Hello'
+    based on the current hour in the given IANA timezone.
+    """
+    hour = datetime.now(ZoneInfo(timezone)).hour
+    if 5 <= hour < 12:
+        return "Good morning"
+    if 12 <= hour < 17:
+        return "Good afternoon"
+    if 17 <= hour < 22:
+        return "Good evening"
+    return "Hello"
+
+
+def build_greeting(config: dict) -> str:
+    """Build the opening line Maya says when a call comes in."""
+    prefix = _time_of_day_greeting(config["timezone"])
+    return (
+        f"{prefix}. I'm {config['ai_name']}, {config['ai_role']}. "
+        f"How can I help you?"
+    )
 
 # ── FastAPI app ──────────────────────────────────────────────────────────
 api = FastAPI(title="AI Receptionist Phone MVP")
@@ -89,7 +113,7 @@ def voice_incoming(
     storage: AudioStorage = Depends(get_storage),
 ):
     config = get_business_config()
-    greeting = GREETING_TEMPLATE.format(name=config["name"])
+    greeting = build_greeting(config)
 
     # Synthesize greeting and store
     audio_bytes = synthesize_speech(greeting)

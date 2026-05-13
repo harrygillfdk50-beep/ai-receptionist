@@ -1,7 +1,11 @@
-from unittest.mock import patch
 from fastapi.testclient import TestClient
 
-from modal_app import api, get_storage
+from modal_app import api, get_storage, validate_twilio
+
+
+def _bypass_twilio_validation() -> None:
+    """Helper for tests: install a no-op override for the Twilio validator."""
+    api.dependency_overrides[validate_twilio] = lambda: None
 
 
 def test_audio_endpoint_returns_mp3_bytes(tmp_path, monkeypatch):
@@ -34,14 +38,12 @@ def test_audio_endpoint_404_when_missing(tmp_path):
         api.dependency_overrides.clear()
 
 
-from unittest.mock import MagicMock
-
-
 def test_voice_incoming_returns_twiml_with_play_and_gather(tmp_path, monkeypatch):
     from execution.audio_storage import AudioStorage
     storage = AudioStorage(base_dir=tmp_path)
 
     api.dependency_overrides[get_storage] = lambda: storage
+    _bypass_twilio_validation()
 
     # Mock TTS so we don't hit ElevenLabs in tests
     import modal_app
@@ -74,6 +76,7 @@ def test_voice_incoming_initializes_conversation_history(tmp_path, monkeypatch):
     from execution.audio_storage import AudioStorage
     storage = AudioStorage(base_dir=tmp_path)
     api.dependency_overrides[get_storage] = lambda: storage
+    _bypass_twilio_validation()
 
     import modal_app
     monkeypatch.setattr(modal_app, "synthesize_speech", lambda text: b"x")
@@ -98,6 +101,7 @@ def test_voice_gather_processes_speech_and_returns_twiml(tmp_path, monkeypatch):
     from execution.audio_storage import AudioStorage
     storage = AudioStorage(base_dir=tmp_path)
     api.dependency_overrides[get_storage] = lambda: storage
+    _bypass_twilio_validation()
 
     import modal_app
     monkeypatch.setattr(modal_app, "synthesize_speech", lambda text: b"fake_audio")
@@ -128,6 +132,7 @@ def test_voice_gather_appends_user_and_assistant_to_history(tmp_path, monkeypatc
     from execution.audio_storage import AudioStorage
     storage = AudioStorage(base_dir=tmp_path)
     api.dependency_overrides[get_storage] = lambda: storage
+    _bypass_twilio_validation()
 
     import modal_app
     monkeypatch.setattr(modal_app, "synthesize_speech", lambda text: b"x")
@@ -158,6 +163,7 @@ def test_voice_gather_handles_missing_speech_result(tmp_path, monkeypatch):
     from execution.audio_storage import AudioStorage
     storage = AudioStorage(base_dir=tmp_path)
     api.dependency_overrides[get_storage] = lambda: storage
+    _bypass_twilio_validation()
 
     import modal_app
     monkeypatch.setattr(modal_app, "synthesize_speech", lambda text: b"x")
@@ -173,3 +179,47 @@ def test_voice_gather_handles_missing_speech_result(tmp_path, monkeypatch):
     finally:
         api.dependency_overrides.clear()
         modal_app.CONVERSATIONS.clear()
+
+
+def test_voice_incoming_rejects_unsigned_request(tmp_path, monkeypatch):
+    """A POST without a valid X-Twilio-Signature must return 403."""
+    from execution.audio_storage import AudioStorage
+    storage = AudioStorage(base_dir=tmp_path)
+    api.dependency_overrides[get_storage] = lambda: storage
+    # Note: NOT bypassing validate_twilio — we want it to run.
+
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "fake-auth-token")
+    monkeypatch.delenv("TWILIO_SKIP_VALIDATION", raising=False)
+
+    try:
+        client = TestClient(api)
+        response = client.post(
+            "/voice/incoming",
+            data={"CallSid": "CAbad", "From": "+15555550111"},
+            # No X-Twilio-Signature header
+        )
+        assert response.status_code == 403
+    finally:
+        api.dependency_overrides.clear()
+
+
+def test_voice_incoming_skip_validation_env_var(tmp_path, monkeypatch):
+    """TWILIO_SKIP_VALIDATION=true bypasses the signature check (dev only)."""
+    from execution.audio_storage import AudioStorage
+    storage = AudioStorage(base_dir=tmp_path)
+    api.dependency_overrides[get_storage] = lambda: storage
+
+    import modal_app
+    monkeypatch.setattr(modal_app, "synthesize_speech", lambda text: b"x")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://test.modal.run")
+    monkeypatch.setenv("TWILIO_SKIP_VALIDATION", "true")
+
+    try:
+        client = TestClient(api)
+        response = client.post(
+            "/voice/incoming",
+            data={"CallSid": "CAskip", "From": "+15555550111"},
+        )
+        assert response.status_code == 200
+    finally:
+        api.dependency_overrides.clear()

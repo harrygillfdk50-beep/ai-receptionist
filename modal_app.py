@@ -2,8 +2,9 @@
 
 import os
 import modal
-from fastapi import FastAPI, Depends, HTTPException, Response
+from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.responses import PlainTextResponse
+from twilio.request_validator import RequestValidator
 
 from execution.audio_storage import AudioStorage
 
@@ -41,6 +42,26 @@ def get_storage() -> AudioStorage:
     return AudioStorage(base_dir=AUDIO_DIR)
 
 
+async def validate_twilio(request: Request) -> None:
+    """FastAPI dependency: reject requests not signed by Twilio.
+
+    Without this, anyone who finds the public Modal URL could hammer
+    /voice/incoming and burn through ElevenLabs/Claude credits.
+
+    Tests override this via ``api.dependency_overrides[validate_twilio]``.
+    Set ``TWILIO_SKIP_VALIDATION=true`` to bypass at runtime (dev only).
+    """
+    if os.environ.get("TWILIO_SKIP_VALIDATION") == "true":
+        return
+
+    validator = RequestValidator(os.environ["TWILIO_AUTH_TOKEN"])
+    signature = request.headers.get("X-Twilio-Signature", "")
+    form_data = await request.form()
+
+    if not validator.validate(str(request.url), dict(form_data), signature):
+        raise HTTPException(status_code=403, detail="invalid twilio signature")
+
+
 @api.get("/audio/{audio_id}")
 def get_audio(audio_id: str, storage: AudioStorage = Depends(get_storage)):
     audio = storage.load(audio_id)
@@ -61,7 +82,7 @@ def _twiml(body: str) -> FastAPIResponse:
     )
 
 
-@api.post("/voice/incoming")
+@api.post("/voice/incoming", dependencies=[Depends(validate_twilio)])
 def voice_incoming(
     CallSid: str = Form(...),
     From: str = Form(...),
@@ -91,7 +112,7 @@ def voice_incoming(
 REPROMPT_TEXT = "I didn't catch that. Could you say it again?"
 
 
-@api.post("/voice/gather")
+@api.post("/voice/gather", dependencies=[Depends(validate_twilio)])
 def voice_gather(
     CallSid: str = Form(...),
     SpeechResult: str = Form(""),

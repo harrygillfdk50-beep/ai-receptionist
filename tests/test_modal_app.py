@@ -189,6 +189,7 @@ def test_voice_incoming_rejects_unsigned_request(tmp_path, monkeypatch):
     # Note: NOT bypassing validate_twilio — we want it to run.
 
     monkeypatch.setenv("TWILIO_AUTH_TOKEN", "fake-auth-token")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://test.modal.run")
     monkeypatch.delenv("TWILIO_SKIP_VALIDATION", raising=False)
 
     try:

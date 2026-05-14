@@ -72,6 +72,10 @@ async def validate_twilio(request: Request) -> None:
     Without this, anyone who finds the public Modal URL could hammer
     /voice/incoming and burn through ElevenLabs/Claude credits.
 
+    Modal terminates TLS upstream, so ``request.url`` inside the container
+    shows ``http://`` but Twilio signed against the public ``https://`` URL.
+    We reconstruct the URL Twilio actually called using ``PUBLIC_BASE_URL``.
+
     Tests override this via ``api.dependency_overrides[validate_twilio]``.
     Set ``TWILIO_SKIP_VALIDATION=true`` to bypass at runtime (dev only).
     """
@@ -82,7 +86,13 @@ async def validate_twilio(request: Request) -> None:
     signature = request.headers.get("X-Twilio-Signature", "")
     form_data = await request.form()
 
-    if not validator.validate(str(request.url), dict(form_data), signature):
+    # Rebuild the public URL Twilio used. Path + (optional) query string.
+    public_base = os.environ["PUBLIC_BASE_URL"].rstrip("/")
+    url = f"{public_base}{request.url.path}"
+    if request.url.query:
+        url = f"{url}?{request.url.query}"
+
+    if not validator.validate(url, dict(form_data), signature):
         raise HTTPException(status_code=403, detail="invalid twilio signature")
 
 

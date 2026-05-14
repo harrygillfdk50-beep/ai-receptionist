@@ -49,8 +49,8 @@ def test_generate_reply_passes_history_to_claude(mock_anthropic_cls, monkeypatch
 
 
 @patch("execution.claude_conversation.Anthropic")
-def test_generate_reply_uses_sonnet_model(mock_anthropic_cls, monkeypatch):
-    """Sonnet 4.6 is the balance of smart-enough for booking flows and fast-enough for phone."""
+def test_generate_reply_uses_haiku_model(mock_anthropic_cls, monkeypatch):
+    """Phone latency reward — Haiku 4.5 for snappier replies."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     mock_client = MagicMock()
     mock_anthropic_cls.return_value = mock_client
@@ -62,4 +62,4 @@ def test_generate_reply_uses_sonnet_model(mock_anthropic_cls, monkeypatch):
 
     model = mock_client.messages.create.call_args.kwargs["model"]
     assert "claude" in model
-    assert "sonnet" in model
+    assert "haiku" in model

@@ -114,6 +114,12 @@ async def validate_twilio(request: Request) -> None:
     form_data = await request.form()
     form_dict = dict(form_data)
 
+    # Twilio sends CallToken on inbound voice webhooks but explicitly
+    # excludes it from the signature computation. Including it makes
+    # validation fail every time. Strip it before validating.
+    # Ref: https://www.twilio.com/docs/voice/api/call-resource#calltoken
+    form_dict.pop("CallToken", None)
+
     public_base = os.environ["PUBLIC_BASE_URL"].rstrip("/")
     url = f"{public_base}{request.url.path}"
     if request.url.query:

@@ -114,11 +114,14 @@ async def validate_twilio(request: Request) -> None:
     form_data = await request.form()
     form_dict = dict(form_data)
 
-    # Twilio sends CallToken on inbound voice webhooks but explicitly
-    # excludes it from the signature computation. Including it makes
-    # validation fail every time. Strip it before validating.
-    # Ref: https://www.twilio.com/docs/voice/api/call-resource#calltoken
-    form_dict.pop("CallToken", None)
+    # Twilio adds these params to the request AFTER computing the signature,
+    # so they must be excluded from our verification or validation fails.
+    # CallToken: documented exclusion (call-resource docs).
+    # StirVerstat: STIR/SHAKEN attestation info added by Twilio's voice
+    #   infrastructure after the webhook is signed. Verified empirically
+    #   in our logs — every failure included this param.
+    for hidden_param in ("CallToken", "StirVerstat"):
+        form_dict.pop(hidden_param, None)
 
     public_base = os.environ["PUBLIC_BASE_URL"].rstrip("/")
     url = f"{public_base}{request.url.path}"

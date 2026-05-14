@@ -10,11 +10,12 @@ from elevenlabs import VoiceSettings
 
 DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs "Rachel"
 DEFAULT_MODEL = "eleven_turbo_v2_5"  # low-latency, good for phone
-# 44.1 kHz mono at 192 kbps — the highest MP3 bitrate ElevenLabs offers.
-# Twilio downsamples to 8 kHz mu-law for the phone leg, but starting from a
-# higher-bitrate source preserves more of the voice character through the
-# transcode (less muffled, clearer consonants).
-OUTPUT_FORMAT = "mp3_44100_192"
+# 44.1 kHz mono at 128 kbps — the highest MP3 bitrate ElevenLabs offers on
+# the Starter tier. 192 kbps would need Creator-tier subscription.
+# Twilio downsamples to 8 kHz mu-law for the phone leg anyway, so the
+# audible difference between 128 and 192 is small over the actual phone
+# connection.
+OUTPUT_FORMAT = "mp3_44100_128"
 
 # Default voice tuning for a phone receptionist:
 # - stability 0.5: balanced (lower = more expressive, higher = more monotone)

@@ -213,6 +213,7 @@ def test_voice_incoming_skip_validation_env_var(tmp_path, monkeypatch):
     import modal_app
     monkeypatch.setattr(modal_app, "synthesize_speech", lambda text: b"x")
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://test.modal.run")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "fake-token")
     monkeypatch.setenv("TWILIO_SKIP_VALIDATION", "true")
 
     try:

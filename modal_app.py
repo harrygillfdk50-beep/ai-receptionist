@@ -104,23 +104,40 @@ async def validate_twilio(request: Request) -> None:
     We reconstruct the URL Twilio actually called using ``PUBLIC_BASE_URL``.
 
     Tests override this via ``api.dependency_overrides[validate_twilio]``.
-    Set ``TWILIO_SKIP_VALIDATION=true`` to bypass at runtime (dev only).
+    Set ``TWILIO_SKIP_VALIDATION=true`` to bypass at runtime (dev only) —
+    validation is still computed and logged so we can debug mismatches.
     """
-    if os.environ.get("TWILIO_SKIP_VALIDATION") == "true":
-        return
+    bypass = os.environ.get("TWILIO_SKIP_VALIDATION") == "true"
 
     validator = RequestValidator(os.environ["TWILIO_AUTH_TOKEN"])
     signature = request.headers.get("X-Twilio-Signature", "")
     form_data = await request.form()
+    form_dict = dict(form_data)
 
-    # Rebuild the public URL Twilio used. Path + (optional) query string.
     public_base = os.environ["PUBLIC_BASE_URL"].rstrip("/")
     url = f"{public_base}{request.url.path}"
     if request.url.query:
         url = f"{url}?{request.url.query}"
 
-    if not validator.validate(url, dict(form_data), signature):
-        raise HTTPException(status_code=403, detail="invalid twilio signature")
+    is_valid = validator.validate(url, form_dict, signature)
+
+    if not is_valid:
+        # Detailed log so we can debug why validation fails. Token is logged
+        # as a length only (never the value) to avoid leaking it.
+        print(
+            "[twilio-validation] FAIL "
+            f"url={url!r} "
+            f"sig_header={signature!r} "
+            f"form_keys={sorted(form_dict.keys())!r} "
+            f"auth_token_len={len(os.environ.get('TWILIO_AUTH_TOKEN', ''))} "
+            f"x_forwarded_proto={request.headers.get('x-forwarded-proto')!r} "
+            f"host_header={request.headers.get('host')!r} "
+            f"request_url={str(request.url)!r}"
+        )
+        if not bypass:
+            raise HTTPException(status_code=403, detail="invalid twilio signature")
+    else:
+        print(f"[twilio-validation] OK url={url!r}")
 
 
 @api.get("/audio/{audio_id}")

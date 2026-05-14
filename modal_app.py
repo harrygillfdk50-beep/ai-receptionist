@@ -227,6 +227,53 @@ def _twiml(body: str) -> FastAPIResponse:
     )
 
 
+# ── Static prompt cache for silence-nudge flow ──────────────────────────
+# These three lines are spoken when the caller goes silent. We synthesize
+# them once per container with ElevenLabs (so it's still Alisa's voice)
+# and cache the audio_id forever — no per-call TTS cost for nudges.
+NUDGE_TEXT = "Anything else I can help with?"
+GOODBYE_TEXT = "If that's all for today, have a good day. Goodbye!"
+
+_STATIC_AUDIO: dict[str, str] = {}
+
+
+def _static_audio_url(text: str, storage: AudioStorage) -> str:
+    """Return a stable audio URL for a fixed prompt; synthesize lazily."""
+    if text not in _STATIC_AUDIO:
+        _STATIC_AUDIO[text] = storage.save(synthesize_speech(text))
+    return _public_audio_url(_STATIC_AUDIO[text])
+
+
+def _build_silence_chain(
+    main_audio_url: str,
+    storage: AudioStorage,
+    next_action: str = "/voice/gather",
+) -> str:
+    """TwiML that plays ``main_audio_url``, then waits with two nudge prompts
+    before gracefully hanging up. Each Gather waits 7 seconds — if the caller
+    speaks at ANY point, the chain breaks and ``next_action`` is hit instead.
+
+    Timing budget after the main reply: 7s → nudge → 7s → nudge again →
+    7s → goodbye → hangup. Total patience window ≈ 21 seconds.
+    """
+    nudge_url = _static_audio_url(NUDGE_TEXT, storage)
+    goodbye_url = _static_audio_url(GOODBYE_TEXT, storage)
+    gather = (
+        f'<Gather input="speech" action="{next_action}" method="POST" '
+        f'speechTimeout="auto" timeout="7"></Gather>'
+    )
+    return (
+        f"<Play>{main_audio_url}</Play>"
+        f"{gather}"
+        f"<Play>{nudge_url}</Play>"
+        f"{gather}"
+        f"<Play>{nudge_url}</Play>"
+        f"{gather}"
+        f"<Play>{goodbye_url}</Play>"
+        f"<Hangup/>"
+    )
+
+
 @api.post("/voice/incoming", dependencies=[Depends(validate_twilio)])
 def voice_incoming(
     CallSid: str = Form(...),
@@ -244,14 +291,7 @@ def voice_incoming(
     CONVERSATIONS[CallSid] = [{"role": "assistant", "content": greeting}]
 
     audio_url = _public_audio_url(audio_id)
-    twiml_body = (
-        f"<Play>{audio_url}</Play>"
-        f'<Gather input="speech" action="/voice/gather" method="POST" '
-        f'speechTimeout="auto" timeout="12"></Gather>'
-        # Fallback if no speech captured: redirect back to incoming
-        f'<Redirect>/voice/incoming</Redirect>'
-    )
-    return _twiml(twiml_body)
+    return _twiml(_build_silence_chain(audio_url, storage))
 
 
 REPROMPT_TEXT = "I didn't catch that. Could you say it again?"
@@ -265,16 +305,11 @@ def voice_gather(
 ):
     config = get_business_config()
 
-    # No speech captured: re-prompt and gather again.
+    # No speech captured: re-prompt and let the silence chain handle it.
     if not SpeechResult.strip():
         audio_id = storage.save(synthesize_speech(REPROMPT_TEXT))
         audio_url = _public_audio_url(audio_id)
-        return _twiml(
-            f"<Play>{audio_url}</Play>"
-            f'<Gather input="speech" action="/voice/gather" method="POST" '
-            f'speechTimeout="auto" timeout="12"></Gather>'
-            f'<Redirect>/voice/incoming</Redirect>'
-        )
+        return _twiml(_build_silence_chain(audio_url, storage))
 
     # Get prior history (or start fresh if Twilio retried after restart)
     history = CONVERSATIONS.get(CallSid, [])
@@ -294,17 +329,10 @@ def voice_gather(
 
     CONVERSATIONS[CallSid] = updated_history
 
-    # TTS + return TwiML
+    # TTS + return TwiML with silence-nudge chain
     audio_id = storage.save(synthesize_speech(reply_text))
     audio_url = _public_audio_url(audio_id)
-    return _twiml(
-        f"<Play>{audio_url}</Play>"
-        f'<Gather input="speech" action="/voice/gather" method="POST" '
-        f'speechTimeout="auto" timeout="12"></Gather>'
-        # If caller goes silent, hang up gracefully
-        f'<Say>Thank you for calling. Goodbye.</Say>'
-        f'<Hangup/>'
-    )
+    return _twiml(_build_silence_chain(audio_url, storage))
 
 
 # ── Modal deployment hook ────────────────────────────────────────────────

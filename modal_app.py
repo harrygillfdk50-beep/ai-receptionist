@@ -65,14 +65,58 @@ TOOLS = [
             "required": ["customer_name", "customer_email", "start_iso"],
         },
     },
+    {
+        "name": "transfer_to_harry",
+        "description": (
+            "Forward the live phone call to Harry's real phone. Only call this "
+            "AFTER you've tried to push the caller toward emailing harry@harry.dev "
+            "and they explicitly insist on speaking with Harry directly. Before "
+            "calling this tool, your final spoken reply MUST tell the caller "
+            "you're transferring them now (e.g. 'Hold on a moment while I "
+            "connect you'). If Harry doesn't answer, the call will fall back to "
+            "a voicemail-style message."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": (
+                        "1-sentence summary of why this caller insisted on Harry "
+                        "(used for the SMS notification to Harry)."
+                    ),
+                },
+                "caller_name": {
+                    "type": "string",
+                    "description": "Caller's name if they shared it; empty string otherwise.",
+                },
+            },
+            "required": ["reason"],
+        },
+    },
 ]
 
 
-def dispatch_tool(name: str, tool_input: dict) -> dict:
-    """Route a Claude tool_use call to the matching Python function."""
-    if name == "book_appointment":
-        return book_appointment(**tool_input)
-    return {"status": "error", "error": f"unknown tool {name!r}"}
+# Per-call transfer flag: when Claude calls transfer_to_harry, the dispatcher
+# records the CallSid + reason here, and voice_gather returns <Dial> TwiML
+# instead of the normal Play+Gather loop on this turn.
+_TRANSFER_REQUESTS: dict[str, dict] = {}
+
+
+def make_tool_dispatcher(call_sid: str):
+    """Build a dispatcher bound to a specific CallSid so transfer requests
+    can be tied back to the right active call."""
+    def dispatch(name: str, tool_input: dict) -> dict:
+        if name == "book_appointment":
+            return book_appointment(**tool_input)
+        if name == "transfer_to_harry":
+            _TRANSFER_REQUESTS[call_sid] = {
+                "reason": tool_input.get("reason", ""),
+                "caller_name": tool_input.get("caller_name", ""),
+            }
+            return {"status": "transferring", "message": "Connecting now."}
+        return {"status": "error", "error": f"unknown tool {name!r}"}
+    return dispatch
 
 # ── Modal setup ──────────────────────────────────────────────────────────
 image = (
@@ -331,23 +375,63 @@ def voice_gather(
     system_prompt = build_system_prompt(config)
 
     # Generate reply. ``generate_reply_with_tools`` may invoke tools
-    # (e.g. book_appointment) mid-turn; the returned ``updated_history``
-    # already includes the new user message + any tool round-trips +
-    # the final assistant reply.
+    # (e.g. book_appointment, transfer_to_harry) mid-turn; the returned
+    # ``updated_history`` already includes the new user message + any
+    # tool round-trips + the final assistant reply.
     reply_text, updated_history = generate_reply_with_tools(
         system_prompt=system_prompt,
         history=history,
         new_message=SpeechResult,
         tools=TOOLS,
-        tool_dispatcher=dispatch_tool,
+        tool_dispatcher=make_tool_dispatcher(CallSid),
     )
 
     CONVERSATIONS[CallSid] = updated_history
 
-    # TTS + return TwiML with silence-nudge chain
+    # Synthesize Alisa's reply once (the same audio is used in both branches).
     audio_id = storage.save(synthesize_speech(reply_text))
     audio_url = _public_audio_url(audio_id)
+
+    # If Claude requested a transfer this turn, play the reply then <Dial>
+    # Harry's real phone. Caller and Harry get bridged. If Harry doesn't
+    # pick up in 20s, the action URL fires the fallback message.
+    if CallSid in _TRANSFER_REQUESTS:
+        _TRANSFER_REQUESTS.pop(CallSid)
+        harry_number = os.environ.get("OWNER_PHONE_NUMBER") or config.get("owner_phone")
+        return _twiml(
+            f"<Play>{audio_url}</Play>"
+            f'<Dial timeout="20" callerId="{os.environ["TWILIO_PHONE_NUMBER"]}" '
+            f'action="/voice/after_transfer" method="POST">'
+            f"<Number>{harry_number}</Number>"
+            f"</Dial>"
+        )
+
+    # Normal turn: silence-nudge chain.
     return _twiml(_build_silence_chain(audio_url, storage))
+
+
+@api.post("/voice/after_transfer", dependencies=[Depends(validate_twilio)])
+def voice_after_transfer(
+    CallSid: str = Form(...),
+    DialCallStatus: str = Form(""),
+    storage: AudioStorage = Depends(get_storage),
+):
+    """Twilio POSTs here after a <Dial> attempt finishes. If Harry didn't
+    answer (no-answer, busy, failed), Alisa apologizes and offers email."""
+    if DialCallStatus == "completed":
+        # The two parties talked and one of them hung up; nothing more to do.
+        return _twiml("<Hangup/>")
+
+    config = get_business_config()
+    fallback = (
+        f"Looks like {config['name']} couldn't pick up right now. "
+        f"Please send your details to {config['contact_email']}. "
+        f"Let me repeat that: {config['contact_email']}. "
+        f"He'll get back to you as soon as he can. Have a great day!"
+    )
+    audio_id = storage.save(synthesize_speech(fallback))
+    audio_url = _public_audio_url(audio_id)
+    return _twiml(f"<Play>{audio_url}</Play><Hangup/>")
 
 
 # ── Modal deployment hook ────────────────────────────────────────────────

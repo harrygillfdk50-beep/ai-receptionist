@@ -15,7 +15,9 @@ from typing import Callable
 from anthropic import Anthropic
 
 CLAUDE_MODEL = "claude-sonnet-4-5-20250929"
-MAX_TOKENS = 400  # bumped slightly because tool_use blocks count toward tokens
+# Short token cap = faster end-to-end latency. Phone replies are 1-2 sentences;
+# 220 tokens is plenty even when one of the assistant blocks is a tool_use call.
+MAX_TOKENS = 220
 
 # How many tool-call round trips we'll do for a single user turn before
 # giving up. In practice, real bookings need 1 round trip. The cap is a

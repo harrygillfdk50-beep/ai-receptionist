@@ -247,7 +247,7 @@ def voice_incoming(
     twiml_body = (
         f"<Play>{audio_url}</Play>"
         f'<Gather input="speech" action="/voice/gather" method="POST" '
-        f'speechTimeout="auto" timeout="5"></Gather>'
+        f'speechTimeout="auto" timeout="12"></Gather>'
         # Fallback if no speech captured: redirect back to incoming
         f'<Redirect>/voice/incoming</Redirect>'
     )
@@ -272,7 +272,7 @@ def voice_gather(
         return _twiml(
             f"<Play>{audio_url}</Play>"
             f'<Gather input="speech" action="/voice/gather" method="POST" '
-            f'speechTimeout="auto" timeout="5"></Gather>'
+            f'speechTimeout="auto" timeout="12"></Gather>'
             f'<Redirect>/voice/incoming</Redirect>'
         )
 
@@ -300,7 +300,7 @@ def voice_gather(
     return _twiml(
         f"<Play>{audio_url}</Play>"
         f'<Gather input="speech" action="/voice/gather" method="POST" '
-        f'speechTimeout="auto" timeout="5"></Gather>'
+        f'speechTimeout="auto" timeout="12"></Gather>'
         # If caller goes silent, hang up gracefully
         f'<Say>Thank you for calling. Goodbye.</Say>'
         f'<Hangup/>'

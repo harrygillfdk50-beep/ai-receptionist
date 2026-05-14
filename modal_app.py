@@ -15,8 +15,64 @@ from fastapi import Form
 from fastapi.responses import Response as FastAPIResponse
 
 from execution.business_config import get_business_config, build_system_prompt
-from execution.claude_conversation import generate_reply
+from execution.claude_conversation import generate_reply_with_tools
 from execution.elevenlabs_tts import synthesize_speech
+from execution.google_calendar import book_appointment
+
+# Tool schemas exposed to Claude via the Anthropic tool-use API.
+# Claude decides when to call these based on caller intent.
+TOOLS = [
+    {
+        "name": "book_appointment",
+        "description": (
+            "Book a discovery call on Harry's calendar after the caller has "
+            "agreed on a specific date, time, and shared their name + email. "
+            "Only call this after explicitly confirming the time back to "
+            "the caller. Times are interpreted in America/Toronto (Eastern)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "customer_name": {
+                    "type": "string",
+                    "description": "Caller's full name.",
+                },
+                "customer_email": {
+                    "type": "string",
+                    "description": (
+                        "Caller's email address for the calendar invite. "
+                        "Spell it back to the caller before booking to confirm."
+                    ),
+                },
+                "start_iso": {
+                    "type": "string",
+                    "description": (
+                        "Start time in ISO 8601 format without timezone, "
+                        "e.g. '2026-05-15T14:00:00' for 2 PM. Local Eastern time."
+                    ),
+                },
+                "duration_minutes": {
+                    "type": "integer",
+                    "description": "Meeting length in minutes. Default 30.",
+                    "default": 30,
+                },
+                "purpose": {
+                    "type": "string",
+                    "description": "Short summary of the meeting purpose.",
+                    "default": "Discovery call",
+                },
+            },
+            "required": ["customer_name", "customer_email", "start_iso"],
+        },
+    },
+]
+
+
+def dispatch_tool(name: str, tool_input: dict) -> dict:
+    """Route a Claude tool_use call to the matching Python function."""
+    if name == "book_appointment":
+        return book_appointment(**tool_input)
+    return {"status": "error", "error": f"unknown tool {name!r}"}
 
 # ── Modal setup ──────────────────────────────────────────────────────────
 image = (
@@ -224,18 +280,19 @@ def voice_gather(
     history = CONVERSATIONS.get(CallSid, [])
     system_prompt = build_system_prompt(config)
 
-    # Generate reply
-    reply_text = generate_reply(
+    # Generate reply. ``generate_reply_with_tools`` may invoke tools
+    # (e.g. book_appointment) mid-turn; the returned ``updated_history``
+    # already includes the new user message + any tool round-trips +
+    # the final assistant reply.
+    reply_text, updated_history = generate_reply_with_tools(
         system_prompt=system_prompt,
         history=history,
         new_message=SpeechResult,
+        tools=TOOLS,
+        tool_dispatcher=dispatch_tool,
     )
 
-    # Update history
-    CONVERSATIONS[CallSid] = history + [
-        {"role": "user", "content": SpeechResult},
-        {"role": "assistant", "content": reply_text},
-    ]
+    CONVERSATIONS[CallSid] = updated_history
 
     # TTS + return TwiML
     audio_id = storage.save(synthesize_speech(reply_text))

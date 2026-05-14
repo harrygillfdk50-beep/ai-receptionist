@@ -106,8 +106,14 @@ def test_voice_gather_processes_speech_and_returns_twiml(tmp_path, monkeypatch):
     import modal_app
     monkeypatch.setattr(modal_app, "synthesize_speech", lambda text: b"fake_audio")
     monkeypatch.setattr(
-        modal_app, "generate_reply",
-        lambda system_prompt, history, new_message: "Sure, what day works?",
+        modal_app, "generate_reply_with_tools",
+        lambda **kwargs: (
+            "Sure, what day works?",
+            list(kwargs["history"]) + [
+                {"role": "user", "content": kwargs["new_message"]},
+                {"role": "assistant", "content": "Sure, what day works?"},
+            ],
+        ),
     )
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://test.modal.run")
     modal_app.CONVERSATIONS["CA999"] = [{"role": "assistant", "content": "Hi!"}]
@@ -137,8 +143,14 @@ def test_voice_gather_appends_user_and_assistant_to_history(tmp_path, monkeypatc
     import modal_app
     monkeypatch.setattr(modal_app, "synthesize_speech", lambda text: b"x")
     monkeypatch.setattr(
-        modal_app, "generate_reply",
-        lambda system_prompt, history, new_message: "Of course.",
+        modal_app, "generate_reply_with_tools",
+        lambda **kwargs: (
+            "Of course.",
+            list(kwargs["history"]) + [
+                {"role": "user", "content": kwargs["new_message"]},
+                {"role": "assistant", "content": "Of course."},
+            ],
+        ),
     )
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://test.modal.run")
     modal_app.CONVERSATIONS["CA111"] = [{"role": "assistant", "content": "Hi!"}]

@@ -14,10 +14,13 @@ import os
 from typing import Callable
 from anthropic import Anthropic
 
-CLAUDE_MODEL = "claude-sonnet-4-5-20250929"
+# Haiku 4.5 instead of Sonnet 4.5 — phone calls reward speed over maximum
+# nuance, and Haiku is roughly 2x faster on the first-token latency that
+# the caller actually perceives. Tool use (book_appointment) works on Haiku.
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 # Short token cap = faster end-to-end latency. Phone replies are 1-2 sentences;
-# 220 tokens is plenty even when one of the assistant blocks is a tool_use call.
-MAX_TOKENS = 220
+# 200 tokens is plenty even when one of the assistant blocks is a tool_use call.
+MAX_TOKENS = 200
 
 # How many tool-call round trips we'll do for a single user turn before
 # giving up. In practice, real bookings need 1 round trip. The cap is a

@@ -10,10 +10,13 @@ from elevenlabs import VoiceSettings
 
 DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs "Rachel"
 DEFAULT_MODEL = "eleven_turbo_v2_5"  # low-latency, good for phone
-# 22kHz mono at 128 kbps — much cleaner than the original 32 kbps we shipped.
+# 44.1 kHz mono at 128 kbps — much cleaner than the original 32 kbps we shipped.
 # Twilio downsamples to 8 kHz mu-law for the phone leg, but starting from a
 # high-bitrate source dramatically reduces muffled / compression artifacts.
-OUTPUT_FORMAT = "mp3_22050_128"
+# Note: ElevenLabs has a fixed allowlist of formats — mp3_22050_128 doesn't
+# exist; the valid 22 kHz option is mp3_22050_32 (too compressed) so we use
+# mp3_44100_128 instead.
+OUTPUT_FORMAT = "mp3_44100_128"
 
 # Default voice tuning for a phone receptionist:
 # - stability 0.5: balanced (lower = more expressive, higher = more monotone)

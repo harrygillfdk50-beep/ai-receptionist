@@ -27,11 +27,11 @@ image = (
 
 app = modal.App("ai-receptionist-phone")
 
-# Cross-container shared storage for short-lived TTS audio.
-# Modal Volumes have write-back caching that isn't visible to other
-# containers without explicit commit/reload; modal.Dict avoids that
-# entirely — writes are immediately visible everywhere.
-AUDIO_DICT = modal.Dict.from_name("ai-receptionist-audio-cache", create_if_missing=True)
+# In-memory audio cache. Works because we pin the deployment to a single
+# container (see ``max_containers=1`` on the @app.function decorator).
+# That way the write in /voice/incoming and the read in /audio/{id} are
+# guaranteed to hit the same Python process.
+_AUDIO_MEMORY_CACHE: dict[str, bytes] = {}
 
 # In-memory conversation store keyed by Twilio CallSid.
 # Phase 5 replaces this with Supabase. Fine for single-process Phase 1 MVP.
@@ -64,36 +64,33 @@ def build_greeting(config: dict) -> str:
 api = FastAPI(title="AI Receptionist Phone MVP")
 
 
-class ModalDictAudioStorage:
-    """Production audio storage backed by modal.Dict.
+class InMemoryAudioStorage:
+    """Production audio storage backed by a Python dict in the container.
 
     Implements the same ``save`` / ``load`` interface as
-    ``execution.audio_storage.AudioStorage`` but stores bytes in a
-    cross-container shared Modal Dict instead of files on a Volume.
-
-    Why: Modal scales the web app across containers. With volumes, a write
-    in container A is not visible to container B until commit/reload.
-    modal.Dict makes writes immediately visible everywhere.
+    ``execution.audio_storage.AudioStorage``. Works only because the
+    deployment is pinned to a single container (max_containers=1) — so
+    every request hits the same Python process and sees the same dict.
     """
 
     def save(self, mp3_bytes: bytes) -> str:
         import uuid
         audio_id = str(uuid.uuid4())
-        AUDIO_DICT[audio_id] = mp3_bytes
+        _AUDIO_MEMORY_CACHE[audio_id] = mp3_bytes
         return audio_id
 
     def load(self, audio_id: str) -> bytes | None:
-        return AUDIO_DICT.get(audio_id)
+        return _AUDIO_MEMORY_CACHE.get(audio_id)
 
 
 def get_storage():
     """Dependency injection for audio storage.
 
-    Production: returns the modal.Dict-backed storage.
+    Production: returns the in-memory storage (single-container deploy).
     Tests: overridden via ``api.dependency_overrides[get_storage]`` to use
     the file-based ``AudioStorage`` for hermetic tmp_path tests.
     """
-    return ModalDictAudioStorage()
+    return InMemoryAudioStorage()
 
 
 async def validate_twilio(request: Request) -> None:
@@ -229,8 +226,10 @@ def voice_gather(
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("ai-receptionist-secrets")],
-    min_containers=1,  # keep warm to reduce phone latency
+    min_containers=1,        # keep warm to reduce phone latency
+    max_containers=1,        # pin to ONE container so /audio/{id} hits the same process that wrote it
 )
+@modal.concurrent(max_inputs=20)  # allow 20 concurrent requests in this one container
 @modal.asgi_app()
 def fastapi_app():
     return api

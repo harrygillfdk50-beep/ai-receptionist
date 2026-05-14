@@ -128,17 +128,19 @@ async def validate_twilio(request: Request) -> None:
     is_valid = validator.validate(url, form_dict, signature)
 
     if not is_valid:
-        # Detailed log so we can debug why validation fails. Token is logged
-        # as a length only (never the value) to avoid leaking it.
+        # Compute what we think the signature should be, so we can compare
+        # to what Twilio sent. If they don't match, either the token is wrong
+        # or one of url/params doesn't match Twilio's view.
+        computed = validator.compute_signature(url, form_dict)
+        token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+        token_fingerprint = f"{token[:4]}...{token[-4:]}" if len(token) >= 8 else "(too short)"
         print(
             "[twilio-validation] FAIL "
             f"url={url!r} "
-            f"sig_header={signature!r} "
-            f"form_keys={sorted(form_dict.keys())!r} "
-            f"auth_token_len={len(os.environ.get('TWILIO_AUTH_TOKEN', ''))} "
-            f"x_forwarded_proto={request.headers.get('x-forwarded-proto')!r} "
-            f"host_header={request.headers.get('host')!r} "
-            f"request_url={str(request.url)!r}"
+            f"sig_received={signature!r} "
+            f"sig_computed={computed!r} "
+            f"token_fingerprint={token_fingerprint} "
+            f"form_keys={sorted(form_dict.keys())!r}"
         )
         if not bypass:
             raise HTTPException(status_code=403, detail="invalid twilio signature")

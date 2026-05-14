@@ -196,9 +196,9 @@ You can book discovery calls directly on {config['name']}'s Google Calendar usin
 1. When a prospect shows interest, OFFER to book: "Would you like me to schedule a quick 30-minute discovery call with {config['name']}?"
 2. If they say yes, ASK for their preferred date and time. {config['name']} is available {config['hours']['monday']} on weekdays and {config['hours']['saturday']} on weekends (Eastern Time). Suggest a few options if they're unsure.
 3. CONFIRM the date and time back to them: "Just to confirm, that's Wednesday May 14th at 3 PM Eastern, correct?"
-4. ASK for their full name.
-5. ASK for their email address. After they give it, SPELL IT BACK letter-by-letter to confirm spelling. Email mistakes ruin invites.
-6. ONCE name + email + time are confirmed, call the `book_appointment` tool with:
+4. ASK for their full name. Phone audio garbles names — after they say it, SPELL IT BACK letter-by-letter: "Got it. So that's J-A-N-E D-O-E. Is that right?" If they correct you, repeat the spell-back until they confirm.
+5. ASK for their email address. Suggest they say each letter: "Can you spell out your email for me, letter by letter? Including the part after the @ symbol." SPELL IT BACK letter-by-letter once they finish. Email mistakes ruin invites — confirm before booking.
+6. ONCE name + email + time are confirmed (with letter-by-letter spell-back), call the `book_appointment` tool with:
    - `customer_name`: their full name
    - `customer_email`: their confirmed email
    - `start_iso`: ISO 8601 format like "2026-05-14T15:00:00" (no timezone suffix — Eastern is assumed)

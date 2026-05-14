@@ -244,6 +244,18 @@ def _static_audio_url(text: str, storage: AudioStorage) -> str:
     return _public_audio_url(_STATIC_AUDIO[text])
 
 
+# Twilio speech-recognition hints — boost STT accuracy for words callers
+# actually use. The list is comma-separated; Twilio caps it at 100 entries.
+SPEECH_HINTS = (
+    "Harry,Alisa,AI receptionist,discovery call,book,appointment,schedule,"
+    "Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday,"
+    "morning,afternoon,evening,today,tomorrow,next week,"
+    "AM,PM,o'clock,thirty,fifteen,forty-five,"
+    "at gmail dot com,at yahoo dot com,at outlook dot com,at hotmail dot com,"
+    "spell that,letter by letter"
+)
+
+
 def _build_silence_chain(
     main_audio_url: str,
     storage: AudioStorage,
@@ -260,7 +272,10 @@ def _build_silence_chain(
     goodbye_url = _static_audio_url(GOODBYE_TEXT, storage)
     gather = (
         f'<Gather input="speech" action="{next_action}" method="POST" '
-        f'speechTimeout="auto" timeout="7"></Gather>'
+        f'speechTimeout="auto" timeout="7" '
+        f'enhanced="true" language="en-US" '
+        f'speechModel="phone_call" '
+        f'hints="{SPEECH_HINTS}"></Gather>'
     )
     return (
         f"<Play>{main_audio_url}</Play>"

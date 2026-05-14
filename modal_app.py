@@ -53,7 +53,7 @@ def _time_of_day_greeting(timezone: str) -> str:
 
 
 def build_greeting(config: dict) -> str:
-    """Build the opening line Maya says when a call comes in."""
+    """Build the opening line the AI assistant says when a call comes in."""
     prefix = _time_of_day_greeting(config["timezone"])
     return (
         f"{prefix}. I'm {config['ai_name']}, {config['ai_role']}. "
